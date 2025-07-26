@@ -1,0 +1,8 @@
+# Ignorar configurações do IntelliJ IDEA
+.idea/
+
+# Ignorar configurações do VS Code
+hospital-api/.vscode/
+
+# Ignorar cache do Python
+hospital-api/Cliente_python/__pycache__/

@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard - Hospital API</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .container { margin-top: 2rem; }
+        .table-actions { display: flex; gap: 0.5rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">Dashboard - <span id="hospital-name"></span></h1>
+
+        <!-- //navegacao -->
+        <ul class="nav nav-tabs" id="entityTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="enfermeiros-tab" data-bs-toggle="tab" data-entity="enfermeiros" data-entity-singular="Enfermeiro" type="button">Enfermeiros</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="medicos-efetivos-tab" data-bs-toggle="tab" data-entity="medicos-efetivos" data-entity-singular="Médico Efetivo" type="button">Médicos Efetivos</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="medicos-plantonistas-tab" data-bs-toggle="tab" data-entity="medicos-plantonistas" data-entity-singular="Médico Plantonista" type="button">Médicos Plantonistas</button>
+            </li>
+        </ul>
+
+        <!-- //Corpo com tabelas -->
+        <div class="card card-body border-top-0">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3 id="table-title">Enfermeiros</h3>
+                <button class="btn btn-primary" onclick="showModalForCreate()">Contratar Novo</button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead id="table-head">
+                        </thead>
+                    <tbody id="table-body">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- //modal pra adicionar novos funcionarios -->
+    <div class="modal fade" id="formModal" tabindex="-1" aria-labelledby="formModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="formModalLabel">Contratar Funcionário</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="employee-form">
+                        <input type="hidden" id="form-mode">
+                        <div class="mb-3">
+                            <label for="matricula" class="form-label">Matrícula</label>
+                            <input type="text" class="form-control" id="matricula" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="nome" class="form-label">Nome</label>
+                            <input type="text" class="form-control" id="nome" required>
+                        </div>
+                        
+                        <div id="specific-fields"></div>
+                        
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" onclick="handleFormSubmit()">Salvar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+
+
+
+
+
+    <script>
+        // =========== CONFIGURAÇÃO E ESTADO DA APLICAÇÃO ==================
+        const API_BASE_URL = "http://localhost:8080/api";
+
+        let AUTH_CREDENTIALS = null; // Será preenchido com o login
+        let currentEntity = 'enfermeiros'; // Entidade inicial
+        let currentEntitySingular = 'Enfermeiro';
+        let formModal = null; // Referência para o modal do Bootstrap
+
+
+
+
+        // =========== COMUNICAÇÃO COM A API do SERVIDOR ===================
+        async function fetchAPI(endpoint, options = {}) {
+            const defaultHeaders = {
+                'Content-Type': 'application/json',
+                'Authorization': `Basic ${AUTH_CREDENTIALS}`
+            };
+
+            const config = {
+                ...options,
+                headers: { ...defaultHeaders, ...options.headers },
+            };
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/${endpoint}`, config);
+                if (response.status === 401) {
+                    alert('Autenticação falhou! Recarregue a página e tente novamente.');
+                    return null;
+                }
+                return response;
+            } catch (error) {
+                alert(`Erro de conexão com a API: ${error.message}`);
+                return null;
+            }
+        }
+
+
+
+
+
+
+
+
+        // =========== LÓGICA DE RENDERIZAÇÃO DA UI ======================
+        function renderTable(data, entityType) {
+            const tableHead = document.getElementById('table-head');
+            const tableBody = document.getElementById('table-body');
+            tableHead.innerHTML = '';
+            tableBody.innerHTML = '';
+
+
+            // Define cabeçalhos com base no tipo de entidade
+            let headers = ['Matrícula', 'Nome'];
+            if (entityType === 'enfermeiros') headers.push('COREN', 'Salário');
+            if (entityType === 'medicos-efetivos') headers.push('CRM', 'Salário');
+            if (entityType === 'medicos-plantonistas') headers.push('CRM', 'Horas Trab.', 'Valor/Hora');
+            headers.push('Ações');
+            
+            tableHead.innerHTML = `<tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>`; //junta todos os do cabeçalho a depender do tipo da entidade
+
+            if (!data || data.length === 0) { //se não tiver dados
+                tableBody.innerHTML = `<tr><td colspan="${headers.length}" class="text-center">Nenhum funcionário encontrado.</td></tr>`;
+                return;
+            }
+
+            data.forEach(item => {
+                let row = `<tr><td>${item.matricula}</td><td>${item.nome}</td>`;
+                if (entityType === 'enfermeiros') row += `<td>${item.coren}</td><td>${item.salarioBase.toFixed(2)}</td>`;
+                if (entityType === 'medicos-efetivos') row += `<td>${item.crm}</td><td>${item.salarioBase.toFixed(2)}</td>`;
+                if (entityType === 'medicos-plantonistas') row += `<td>${item.crm}</td><td>${item.horasTrabalhadas}</td><td>${item.valorHoraPlatao.toFixed(2)}</td>`;
+                
+                row += `<td class="table-actions">
+                          <button class="btn btn-sm btn-warning" onclick='showModalForEdit(${JSON.stringify(item)})'>Editar</button>
+                          <button class="btn btn-sm btn-danger" onclick='handleDelete("${item.matricula}")'>Demitir</button>
+                        </td></tr>`;
+                tableBody.innerHTML += row;
+            });
+        }
+        
+        function getSpecificFieldsHTML(entityType) {
+            if (entityType === 'enfermeiros') {
+                return `
+                    <div class="mb-3">
+                        <label for="coren" class="form-label">COREN</label>
+                        <input type="text" class="form-control" id="coren" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="salarioBase" class="form-label">Salário Base</label>
+                        <input type="number" step="0.01" class="form-control" id="salarioBase" required>
+                    </div>`;
+            }
+            if (entityType === 'medicos-efetivos') {
+                return `
+                    <div class="mb-3">
+                        <label for="crm" class="form-label">CRM</label>
+                        <input type="text" class="form-control" id="crm" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="salarioBase" class="form-label">Salário Base</label>
+                        <input type="number" step="0.01" class="form-control" id="salarioBase" required>
+                    </div>`;
+            }
+            if (entityType === 'medicos-plantonistas') {
+                return `
+                    <div class="mb-3">
+                        <label for="crm" class="form-label">CRM</label>
+                        <input type="text" class="form-control" id="crm" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="horasTrabalhadas" class="form-label">Horas Trabalhadas</label>
+                        <input type="number" class="form-control" id="horasTrabalhadas" required>
+                    </div>
+                     <div class="mb-3">
+                        <label for="valorHoraPlatao" class="form-label">Valor por Hora</label>
+                        <input type="number" step="0.01" class="form-control" id="valorHoraPlatao" required>
+                    </div>`;
+            }
+            return '';
+        }
+
+
+
+
+
+
+
+
+        // =========== EVENTOS E MANIPULAÇÃO DOS DADOS ===================
+        async function loadDataForCurrentEntity() {
+            const response = await fetchAPI(currentEntity);
+            if (response && response.ok) {
+                const data = await response.json();
+                document.getElementById('table-title').textContent = document.querySelector(`[data-entity="${currentEntity}"]`).textContent;
+                renderTable(data, currentEntity);
+            }
+        }
+        
+        function showModalForCreate() {
+            document.getElementById('employee-form').reset();
+            document.getElementById('form-mode').value = 'create';
+            document.getElementById('formModalLabel').textContent = `Contratar Novo ${currentEntitySingular}`;
+            document.getElementById('matricula').readOnly = false;
+            document.getElementById('specific-fields').innerHTML = getSpecificFieldsHTML(currentEntity);
+            formModal.show();
+        }
+
+        function showModalForEdit(item) {
+            document.getElementById('employee-form').reset();
+            document.getElementById('form-mode').value = 'edit';
+            document.getElementById('formModalLabel').textContent = `Atualizar ${currentEntitySingular}`;
+            document.getElementById('specific-fields').innerHTML = getSpecificFieldsHTML(currentEntity);
+            
+            // Preenche os campos com os dados existentes
+            document.getElementById('matricula').value = item.matricula;
+            document.getElementById('matricula').readOnly = true; // Não pode mudar a matrícula
+            document.getElementById('nome').value = item.nome;
+            if (currentEntity === 'enfermeiros') {
+                document.getElementById('coren').value = item.coren;
+                document.getElementById('salarioBase').value = item.salarioBase;
+            }
+            if (currentEntity === 'medicos-efetivos') {
+                document.getElementById('crm').value = item.crm;
+                document.getElementById('salarioBase').value = item.salarioBase;
+            }
+            if (currentEntity === 'medicos-plantonistas') {
+                document.getElementById('crm').value = item.crm;
+                document.getElementById('horasTrabalhadas').value = item.horasTrabalhadas;
+                document.getElementById('valorHoraPlatao').value = item.valorHoraPlatao;
+            }
+            formModal.show();
+        }
+
+        async function handleFormSubmit() {
+            const form = document.getElementById('employee-form');
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+
+            const mode = document.getElementById('form-mode').value;
+            const matricula = document.getElementById('matricula').value;
+            
+            // Monta o corpo da requisição (payload)
+            const payload = { nome: document.getElementById('nome').value };
+            if (mode === 'create') payload.matricula = matricula;
+
+            if (currentEntity === 'enfermeiros') {
+                payload.coren = document.getElementById('coren').value;
+                payload.salarioBase = parseFloat(document.getElementById('salarioBase').value);
+            }
+            if (currentEntity === 'medicos-efetivos') {
+                payload.crm = document.getElementById('crm').value;
+                payload.salarioBase = parseFloat(document.getElementById('salarioBase').value);
+            }
+            if (currentEntity === 'medicos-plantonistas') {
+                payload.crm = document.getElementById('crm').value;
+                payload.horasTrabalhadas = parseInt(document.getElementById('horasTrabalhadas').value);
+                payload.valorHoraPlatao = parseFloat(document.getElementById('valorHoraPlatao').value);
+            }
+            
+            const method = mode === 'create' ? 'POST' : 'PUT';
+            const endpoint = mode === 'create' ? currentEntity : `${currentEntity}/${matricula}`;
+
+            const response = await fetchAPI(endpoint, {
+                method: method,
+                body: JSON.stringify(payload)
+            });
+
+            if (response && response.ok) {
+                formModal.hide();
+                loadDataForCurrentEntity();
+            } else if (response) {
+                const errorData = await response.json();
+                alert(`Erro ao salvar: ${errorData.messages.join(', ')}`);
+            }
+        }
+
+        async function handleDelete(matricula) {
+            if (!confirm(`Tem certeza que deseja demitir o funcionário de matrícula ${matricula}?`)) {
+                return;
+            }
+            const response = await fetchAPI(`${currentEntity}/${matricula}`, { method: 'DELETE' });
+            if (response && response.ok) {
+                loadDataForCurrentEntity();
+            } else {
+                alert('Não foi possível demitir o funcionário.');
+            }
+        }
+
+
+
+
+
+
+
+        // =========== INICIALIZAÇÃO DA APLICAÇÃO ========================
+        document.addEventListener('DOMContentLoaded', () => {
+            // Pede as credenciais ao carregar a página
+            const user = prompt("Digite o nome de usuário da API:", "admin");
+            const password = prompt("Digite a senha da API:", "senha123");
+            if (!user || !password) {
+                alert('Credenciais são necessárias para usar a aplicação.');
+                return;
+            }
+            AUTH_CREDENTIALS = btoa(`${user}:${password}`); // Codifica para Base64
+
+            formModal = new bootstrap.Modal(document.getElementById('formModal'));
+            
+            // Adiciona os listeners para as abas
+            const tabs = document.querySelectorAll('#entityTabs .nav-link');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', (event) => {
+                    currentEntity = event.target.getAttribute('data-entity');
+                    currentEntitySingular = event.target.getAttribute('data-entity-singular');
+                    loadDataForCurrentEntity();
+                });
+            });
+
+            // Carrega os dados da primeira aba e o nome do hospital
+            fetchAPI('rh/hospital').then(response => {
+                if (response && response.ok) response.text().then(name => {
+                    document.getElementById('hospital-name').textContent = name;
+                })
+            });
+            loadDataForCurrentEntity();
+        });
+    </script>
+</body>
+</html>
